@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+
+# Signing material - NEVER commit these. The release keystore is the app's permanent
+# update identity; losing it or leaking it both break the upgrade chain.
+*.jks
+*.keystore
+keystore.properties
+release-signing.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Output
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+
+# Logs
+*.log
+
+# Kotlin build session data
+.kotlin/

@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Sportspk</string>
+    <string name="widget_label">Sportspk Scores</string>
+    <string name="widget_description">Live scores for your favorite teams.</string>
+
+    <string name="nav_my_teams">My Teams</string>
+    <string name="nav_scores">Scores</string>
+    <string name="nav_standings">Standings</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="notif_channel_game_start_name">Game start</string>
+    <string name="notif_channel_game_start_desc">A favorite team\'s game has started.</string>
+    <string name="notif_channel_final_name">Final score</string>
+    <string name="notif_channel_final_desc">A favorite team\'s game has ended.</string>
+
+    <string name="cd_refresh">Refresh scores</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_team_logo">Team logo</string>
+</resources>

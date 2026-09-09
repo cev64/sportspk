@@ -1,0 +1,107 @@
+name: Release APK
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name to build (e.g. 1.1.0). Defaults to the value in build.gradle.kts."
+        required: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify signing secrets are present
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # Fail loudly rather than shipping an unsigned or differently-signed APK, which
+          # could not install over the existing app. Never echo the values themselves.
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required signing secret: ${name}"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+      - name: Reconstruct release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          # The keystore exists only for the life of this job, on the runner's disk.
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "${RUNNER_TEMP}/release.jks"
+          echo "ANDROID_KEYSTORE_PATH=${RUNNER_TEMP}/release.jks" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew testReleaseUnitTest --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintRelease --stacktrace
+
+      - name: Assemble signed release APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # versionCode is derived from the run number so it is monotonic across releases.
+          # VERSION_CODE_BASE leaves headroom for builds made before this workflow existed.
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+          echo "Building versionCode ${VERSION_CODE}"
+          ./gradlew assembleRelease -PversionCode="${VERSION_CODE}" --stacktrace
+
+      - name: Verify the APK is correctly signed
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "Verifying ${APK}"
+          "${BUILD_TOOLS}/apksigner" verify --verbose "${APK}"
+          # Print the signer digest so an upgrade-identity change is visible in the log.
+          # This is a public certificate fingerprint, not a secret.
+          "${BUILD_TOOLS}/apksigner" verify --print-certs "${APK}" | grep -i "SHA-256 digest" || true
+          "${BUILD_TOOLS}/aapt2" dump badging "${APK}" | head -1
+
+      - name: Remove the keystore from the runner
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/release.jks"
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sportspk-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Attach APK to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
