@@ -48,7 +48,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 
 class ScoresWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = ScoresWidget()
@@ -85,8 +84,7 @@ private object Palette {
 }
 
 private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
-private val WEEKDAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE")
-private val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE M/d")
+private val DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, MMM d")
 
 class ScoresWidget : GlanceAppWidget() {
 
@@ -171,17 +169,15 @@ private sealed interface Item {
 private fun GameList(games: List<Game>, logos: Map<String, Bitmap?>) {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
-    val (todays, upcoming) = games.partition {
-        it.state == GameState.LIVE || Instant.ofEpochMilli(it.startMillis).atZone(zone).toLocalDate() <= today
-    }
+    // One labelled section per day. A live game that started before midnight stays under today.
+    val byDay = games.groupBy {
+        val day = Instant.ofEpochMilli(it.startMillis).atZone(zone).toLocalDate()
+        if (it.state == GameState.LIVE || day < today) today else day
+    }.toSortedMap()
     val items = buildList {
-        if (todays.isNotEmpty()) {
-            add(Item.Section("TODAY"))
-            todays.forEach { add(Item.Match(it)) }
-        }
-        if (upcoming.isNotEmpty()) {
-            add(Item.Section("UPCOMING"))
-            upcoming.forEach { add(Item.Match(it)) }
+        for ((day, dayGames) in byDay) {
+            add(Item.Section(dayLabel(day, today)))
+            dayGames.forEach { add(Item.Match(it)) }
         }
     }
 
@@ -189,10 +185,16 @@ private fun GameList(games: List<Game>, logos: Map<String, Bitmap?>) {
         items(items.size) { index ->
             when (val item = items[index]) {
                 is Item.Section -> SectionLabel(item.title, first = index == 0)
-                is Item.Match -> GameRow(item.game, logos, today, zone)
+                is Item.Match -> GameRow(item.game, logos, zone)
             }
         }
     }
+}
+
+private fun dayLabel(day: LocalDate, today: LocalDate): String = when (day) {
+    today -> "TODAY"
+    today.plusDays(1) -> "TOMORROW"
+    else -> DAY_LABEL.format(day).uppercase()
 }
 
 @Composable
@@ -205,7 +207,7 @@ private fun SectionLabel(title: String, first: Boolean) {
 }
 
 @Composable
-private fun GameRow(game: Game, logos: Map<String, Bitmap?>, today: LocalDate, zone: ZoneId) {
+private fun GameRow(game: Game, logos: Map<String, Bitmap?>, zone: ZoneId) {
     val open = game.link?.let {
         actionStartActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
     }
@@ -224,7 +226,7 @@ private fun GameRow(game: Game, logos: Map<String, Bitmap?>, today: LocalDate, z
                 TeamLine(game.home, game, logos)
             }
             Spacer(GlanceModifier.width(4.dp))
-            Status(game, today, zone)
+            Status(game, zone)
         }
     }
 }
@@ -275,33 +277,27 @@ private fun TeamLine(side: Side, game: Game, logos: Map<String, Bitmap?>) {
 }
 
 @Composable
-private fun Status(game: Game, today: LocalDate, zone: ZoneId) {
+private fun Status(game: Game, zone: ZoneId) {
+    // The day comes from the section label, so a scheduled game only needs its start time.
     val (top, bottom) = when (game.state) {
         GameState.LIVE -> "LIVE" to game.detail
         GameState.FINAL -> game.detail.ifEmpty { "Final" } to null
-        GameState.PRE -> {
-            val start = Instant.ofEpochMilli(game.startMillis).atZone(zone)
-            val days = ChronoUnit.DAYS.between(today, start.toLocalDate())
-            val day = when {
-                days <= 0L -> "Today"
-                days == 1L -> "Tomorrow"
-                days < 7L -> WEEKDAY.format(start)
-                else -> MONTH_DAY.format(start)
-            }
-            day to (if (game.timeTbd) "TBD" else TIME.format(start))
-        }
+        GameState.PRE -> null to
+            (if (game.timeTbd) "TBD" else TIME.format(Instant.ofEpochMilli(game.startMillis).atZone(zone)))
     }
     Column(modifier = GlanceModifier.width(60.dp), horizontalAlignment = Alignment.End) {
-        Text(
-            top,
-            maxLines = 1,
-            style = TextStyle(
-                color = if (game.state == GameState.LIVE) Palette.live else Palette.muted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.End,
-            ),
-        )
+        if (top != null) {
+            Text(
+                top,
+                maxLines = 1,
+                style = TextStyle(
+                    color = if (game.state == GameState.LIVE) Palette.live else Palette.muted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.End,
+                ),
+            )
+        }
         if (bottom != null) {
             Text(
                 bottom,
