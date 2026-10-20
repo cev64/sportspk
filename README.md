@@ -18,12 +18,38 @@ Teams with no games coming up are hidden. Tap a game to open it on ESPN; tap the
 - To change teams, edit `FAVORITE_TEAMS` in `app/src/main/java/com/personal/sportspk/Teams.kt`.
   The week-long window and the 30-day "next game" fallback are in `GameSelector.kt`.
 
-## Building
+## Releases (how to get it on the phone)
 
-`./gradlew assembleDebug` (JDK 17+, Android SDK 35). CI builds a debug APK on every push; the
-release workflow builds a signed APK from the permanent release key.
+`main` is the release branch. Every merge to `main` runs `.github/workflows/release.yml`, which
+builds a signed APK and publishes it as the latest GitHub Release. This link always downloads the
+newest build; open it on the phone (signed in to GitHub if the repo is private) and install:
 
-## Versioning
+https://github.com/cev64/sportspk/releases/latest/download/sportspk.apk
 
-`versionName` is in `app/build.gradle.kts`. `versionCode` must only ever increase: CI passes
-`-PversionCode=<1000 + run number>`; local builds use 1 so they never block a later CI build.
+Each release is tagged `v<versionName>-<versionCode>`. `versionCode` is `1000 + run number`, so
+every release installs over the previous one. Bump `versionNameValue` in `app/build.gradle.kts`
+when you feel like it; it's only the label.
+
+Pull requests run `.github/workflows/build.yml` (tests, lint, debug APK). The debug APK from a PR
+installs as a separate app (`com.personal.sportspk.debug`), so it can be tried without touching
+the real one.
+
+### Release signing
+
+The release key is the app's permanent update identity: an APK signed with a different key can't
+install over the app. It lives only in repository secrets (and your backup), never in the repo:
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 sportspk-release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | `sportspk` |
+| `ANDROID_KEY_PASSWORD` | key password (same as the keystore password) |
+
+If any secret is missing the release workflow fails rather than publishing an APK that can't
+update the app. For a local signed build, put `storeFile`, `storePassword`, `keyAlias` and
+`keyPassword` in a git-ignored `keystore.properties` and run `./gradlew assembleRelease`.
+
+## Building locally
+
+`./gradlew assembleDebug` (JDK 17+, Android SDK 35).
