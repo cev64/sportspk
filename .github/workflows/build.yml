@@ -1,8 +1,9 @@
 name: Build
 
+# Checks every pull request and every push to main. Release builds are in release.yml.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -13,7 +14,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -29,18 +30,11 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Unit tests, lint, debug APK
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
 
-      - name: Lint
-        run: ./gradlew lintDebug --stacktrace
-
-      - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
-
-      # A DEBUG APK IS NOT AN UPGRADE BUILD. It uses the debug signing key and the
-      # .debug applicationId suffix, so it installs alongside the real app rather than
-      # over it. Use the release workflow for anything you actually keep data in.
+      # A debug APK installs as a separate app ("com.personal.sportspk.debug"), not as an update
+      # to the release build. Handy for trying a PR before merging it.
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -49,11 +43,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload test reports
-        if: always()
+      - name: Upload reports
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: reports
           path: |
             app/build/reports/tests/
             app/build/reports/lint-results-*.html
