@@ -33,6 +33,7 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
+import androidx.glance.layout.RowScope
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
@@ -215,98 +216,105 @@ private fun GameRow(game: Game, logos: Map<String, Bitmap?>, zone: ZoneId) {
         .fillMaxWidth()
         .background(Palette.row)
         .cornerRadius(12.dp)
-        .padding(horizontal = 8.dp, vertical = 4.dp)
+        .padding(horizontal = 8.dp, vertical = 6.dp)
     if (open != null) modifier = modifier.clickable(open)
+
+    // "My team" is the favorite; when both sides are favorites (Thunder vs Hornets) it's the home team.
+    val mineIsHome = game.home.isFavorite
+    val mine = if (mineIsHome) game.home else game.away
+    val opponent = if (mineIsHome) game.away else game.home
 
     Column(modifier = GlanceModifier.fillMaxWidth().padding(bottom = 3.dp)) {
         Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = GlanceModifier.defaultWeight()) {
-                TeamLine(game.away, game, logos)
-                Spacer(GlanceModifier.height(2.dp))
-                TeamLine(game.home, game, logos)
+            // Team blocks take what they need and the middle flexes, so a narrow widget squeezes
+            // the gap around the time rather than clipping a name.
+            // My team: logo, then name.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Logo(mine, logos)
+                Spacer(GlanceModifier.width(5.dp))
+                TeamName(mine.abbr, bold = true)
             }
-            Spacer(GlanceModifier.width(4.dp))
-            Status(game, zone)
+            Center(game, mine, opponent, zone)
+            // Opponent: "@ SEA" / "vs SEA", then logo.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (mineIsHome) "vs" else "@",
+                    maxLines = 1,
+                    style = TextStyle(color = Palette.muted, fontSize = 11.sp),
+                )
+                Spacer(GlanceModifier.width(2.dp))
+                TeamName(opponent.abbr, bold = false)
+                Spacer(GlanceModifier.width(5.dp))
+                Logo(opponent, logos)
+            }
         }
     }
 }
 
 @Composable
-private fun TeamLine(side: Side, game: Game, logos: Map<String, Bitmap?>) {
-    val showScore = game.state != GameState.PRE && side.score != null
-    val emphasize = when (game.state) {
-        GameState.FINAL -> side.winner
-        else -> side.isFavorite
-    }
-    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = GlanceModifier.size(18.dp).background(Palette.badge).cornerRadius(9.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            val bitmap = side.logoUrl?.let { logos[it] }
-            if (bitmap != null) {
-                Image(
-                    provider = ImageProvider(bitmap),
-                    contentDescription = side.abbr,
-                    modifier = GlanceModifier.size(15.dp),
-                )
-            }
-        }
-        Spacer(GlanceModifier.width(6.dp))
-        Text(
-            side.abbr,
-            maxLines = 1,
-            style = TextStyle(
-                color = if (game.state == GameState.FINAL && !side.winner) Palette.muted else Palette.text,
-                fontSize = 13.sp,
-                fontWeight = if (side.isFavorite) FontWeight.Bold else FontWeight.Normal,
-            ),
-            modifier = GlanceModifier.defaultWeight(),
-        )
-        if (showScore) {
-            Text(
-                side.score.orEmpty(),
-                style = TextStyle(
-                    color = if (game.state == GameState.FINAL && !side.winner) Palette.muted else Palette.text,
-                    fontSize = 14.sp,
-                    fontWeight = if (emphasize || game.state == GameState.LIVE) FontWeight.Bold else FontWeight.Normal,
-                ),
+private fun Logo(side: Side, logos: Map<String, Bitmap?>) {
+    Box(
+        modifier = GlanceModifier.size(28.dp).background(Palette.badge).cornerRadius(14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bitmap = side.logoUrl?.let { logos[it] }
+        if (bitmap != null) {
+            Image(
+                provider = ImageProvider(bitmap),
+                contentDescription = side.abbr,
+                modifier = GlanceModifier.size(22.dp),
             )
         }
     }
 }
 
 @Composable
-private fun Status(game: Game, zone: ZoneId) {
-    // The day comes from the section label, so a scheduled game only needs its start time.
-    val (top, bottom) = when (game.state) {
-        GameState.LIVE -> "LIVE" to game.detail
-        GameState.FINAL -> game.detail.ifEmpty { "Final" } to null
-        GameState.PRE -> null to
-            (if (game.timeTbd) "TBD" else TIME.format(Instant.ofEpochMilli(game.startMillis).atZone(zone)))
+private fun TeamName(abbr: String, bold: Boolean) {
+    Text(
+        abbr,
+        maxLines = 1,
+        style = TextStyle(
+            color = Palette.text,
+            fontSize = 14.sp,
+            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+        ),
+    )
+}
+
+/** Middle of the row: start time before the game, otherwise my score – their score and the status. */
+@Composable
+private fun RowScope.Center(game: Game, mine: Side, opponent: Side, zone: ZoneId) {
+    val main = when (game.state) {
+        GameState.PRE ->
+            if (game.timeTbd) "TBD" else TIME.format(Instant.ofEpochMilli(game.startMillis).atZone(zone))
+        else -> "${mine.score ?: "-"} – ${opponent.score ?: "-"}"
     }
-    Column(modifier = GlanceModifier.width(60.dp), horizontalAlignment = Alignment.End) {
-        if (top != null) {
+    // The day comes from the section label, so a scheduled game only needs its start time.
+    val sub = when (game.state) {
+        GameState.PRE -> null
+        GameState.LIVE -> game.detail.ifEmpty { "LIVE" }
+        GameState.FINAL -> game.detail.ifEmpty { "Final" }
+    }
+    Column(modifier = GlanceModifier.defaultWeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            main,
+            maxLines = 1,
+            style = TextStyle(
+                color = Palette.text,
+                fontSize = if (game.state == GameState.PRE) 13.sp else 15.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            ),
+        )
+        if (sub != null) {
             Text(
-                top,
+                sub,
                 maxLines = 1,
                 style = TextStyle(
                     color = if (game.state == GameState.LIVE) Palette.live else Palette.muted,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.End,
-                ),
-            )
-        }
-        if (bottom != null) {
-            Text(
-                bottom,
-                maxLines = 1,
-                style = TextStyle(
-                    color = Palette.text,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.End,
+                    textAlign = TextAlign.Center,
                 ),
             )
         }

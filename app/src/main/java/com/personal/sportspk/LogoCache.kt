@@ -9,12 +9,12 @@ import java.net.URL
 
 /** Downloads team logos once, shrinks them to widget size and keeps them on disk. */
 object LogoCache {
-    private const val SIZE_PX = 72
+    private const val SIZE_PX = 96
 
     private fun dir(context: Context) = File(context.filesDir, "logos").apply { mkdirs() }
 
     private fun fileFor(context: Context, url: String) =
-        File(dir(context), Integer.toHexString(url.hashCode()) + ".png")
+        File(dir(context), Integer.toHexString(url.hashCode()) + "_$SIZE_PX.png")
 
     fun ensure(context: Context, url: String) {
         val file = fileFor(context, url)
